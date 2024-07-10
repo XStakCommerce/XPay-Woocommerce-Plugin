@@ -253,12 +253,15 @@ if ( ! class_exists( 'WC_Gateway_Xpay' ) ) {
 		public function create_intent( $order ){
 
 			function filter_empty($array) {
-				return array_filter($array, function($value) {
+				foreach ($array as $key => $value) {
 					if (is_array($value)) {
-						$value = filter_empty($value);
+						$array[$key] = filter_empty($value);
 					}
-					return !empty($value) || $value === '0';
-				});
+					if (empty($array[$key]) && $array[$key] !== '0') {
+						unset($array[$key]);
+					}
+				}
+				return $array;
 			}
 		
 			$pi_data = get_post_meta( $order->get_id(), 'xpay_pi_data', true);
