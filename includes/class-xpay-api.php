@@ -42,7 +42,7 @@ if (!class_exists('XPay_API')):
          */
         function create_intent( $data ){
 
-            $signature = hash_hmac('sha256',json_encode( $data, JSON_UNESCAPED_SLASHES), $this->hmach_secret );
+            $signature = hash_hmac('sha256',json_encode( $data, JSON_UNESCAPED_SLASHES | JSON_UNESCAPED_UNICODE), $this->hmach_secret );
 			$url = "v1/payment/intent";
 			$method  = 'POST';
 			$headers = [

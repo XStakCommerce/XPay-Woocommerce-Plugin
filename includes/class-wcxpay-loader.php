@@ -141,7 +141,7 @@ if ( ! class_exists( 'WCXPAY_Loader' ) ) {
 			$wc_xpay_gateway     = WC()->payment_gateways->payment_gateways()['xpay'];
 			$webhook_hmac_secret = $wc_xpay_gateway->get_webhook_hmac_secret();
 
-			$signature = hash_hmac('sha256',json_encode( $data, JSON_UNESCAPED_SLASHES), $webhook_hmac_secret );
+			$signature = hash_hmac('sha256',json_encode( $data, JSON_UNESCAPED_SLASHES | JSON_UNESCAPED_UNICODE), $webhook_hmac_secret );
 	
 			if( $signature_header == $signature){
 				return true;
