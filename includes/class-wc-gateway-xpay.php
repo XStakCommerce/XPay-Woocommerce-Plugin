@@ -263,6 +263,13 @@ if ( ! class_exists( 'WC_Gateway_Xpay' ) ) {
 				}
 				return $array;
 			}
+
+			function process_string($string) {
+				// Remove content within parentheses
+				$string = preg_replace('/\s*\([^)]*\)/', '', $string);
+				// Capitalize the first character of each word
+				return ucwords(trim($string));
+			}
 		
 			$pi_data = get_post_meta( $order->get_id(), 'xpay_pi_data', true);
 			if( !empty($pi_data) ){
@@ -282,14 +289,14 @@ if ( ! class_exists( 'WC_Gateway_Xpay' ) ) {
 				'payment_method_types' => "card",
 				'customer' => [
 					'email' => $order->get_billing_email(),
-					'name' => htmlspecialchars(trim($order->get_billing_first_name().' '.$order->get_billing_last_name())), 
+					'name' => htmlspecialchars(trim($order->get_billing_first_name().' '.$order->get_billing_last_name())),
 					'phone' => $order->get_billing_phone(),
 				],
 				'shipping' => [
 					'address1' => htmlspecialchars(($order->get_billing_address_1())),
 					'city'     => htmlspecialchars($order->get_billing_city()),
-					'country'  => htmlspecialchars(strtolower(WC()->countries->countries[$order->get_billing_country()])),
-					'province' => htmlspecialchars(strtolower($state)),
+					'country'  => htmlspecialchars(process_string(strtolower(WC()->countries->countries[$order->get_billing_country()]))),
+					'province' => htmlspecialchars(ucwords(strtolower($state))),
 					'zip' => $order->get_billing_postcode()
 				],
 				'metadata' =>[
