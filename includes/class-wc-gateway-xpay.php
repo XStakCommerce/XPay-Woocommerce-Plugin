@@ -101,7 +101,7 @@ if ( ! class_exists( 'WC_Gateway_Xpay' ) ) {
 					'desc_tip'    => true,
 					'custom_attributes'  => array(
 						'required'   => 'required',
-						'pattern'    => '^https:\/\/js\.xstak\.com(?:\/v2)?\/xpay(?:-stage)?\.js'
+						'pattern'    => '^https:\/\/js\.xstak\.com(?:\/v4)?\/xpay(?:-stage)?\.js'
 					)
 				),
 				'mode'            => array(
