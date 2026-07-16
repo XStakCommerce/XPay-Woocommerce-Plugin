@@ -6,15 +6,27 @@ jQuery('document').ready(function($ ){
    /*
    * Initializing Payment widget on checkout page.
    */
-    wp.hooks.addAction( 'experimental__woocommerce_blocks-checkout-render-checkout-form', 'xpay-checkout-block', function( data ) {
-        setTimeout(initializeXpayPaymentWidget,500);
-    }); 
-
-    wp.hooks.addAction( `experimental__woocommerce_blocks-checkout-set-active-payment-method`, 'xpay-checkout-block', function( paymentMethod ) {
-      if( paymentMethod.value == 'xpay'){
-        setTimeout(initializeXpayPaymentWidget,500);
-      }
-    }); 
+   function waitForXpayWidget() {
+    if ($('#wc_xpay_widget').length) {
+        initializeXpayPaymentWidget();
+    }
+}
+    setTimeout(waitForXpayWidget, 500);
+    $(document.body).on('change', 'input[name="radio-control-wc-payment-method-options"]', function () {
+        if ($(this).val() === 'xpay') {
+            setTimeout(waitForXpayWidget, 300);
+        }
+    });
+    const observer = new MutationObserver(function () {
+        if ($('#wc_xpay_widget').length && $('#wc_xpay_widget').is(':empty')) {
+            initializeXpayPaymentWidget();
+        }
+    });
+    observer.observe(document.body, {
+        childList: true,
+        subtree: true
+    });
+ 
 
     function initializeXpayPaymentWidget(){
       const options = {
