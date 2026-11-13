@@ -47,12 +47,12 @@ function processSuccess( data ) {
 	
 	try {
 		let customer = xpay_data.customer ;
-		const response = window.WC_XPAY.confirmPayment(
-		  "card",
-		  xpay_data.clientSecret,
-		  customer,
-		  xpay_data.encryptionKey
-		)
+		const response = window.WC_XPAY.confirmPayment({
+		  paymentMethodType: "card",
+		  clientSecret: xpay_data.clientSecret,
+		  customer: customer,
+		  encryptionKey: xpay_data.encryptionKey,
+		})
 		.then((res) => {
 
 		  console.log(res);

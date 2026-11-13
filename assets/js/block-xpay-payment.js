@@ -1,6 +1,6 @@
 jQuery('document').ready(function($ ){
 
-    const WC_XPAY = new Xpay( wc_xpay.publishableKey, wc_xpay.accountId, wc_xpay.hmacSecret);
+    const WC_XPAY = new XPay({ publishableKey: wc_xpay.publishableKey, accountId: wc_xpay.accountId });
 
     window.WC_XPAY = WC_XPAY; // to be utilized in payment block.
    /*
@@ -76,6 +76,7 @@ jQuery('document').ready(function($ ){
               url: wc_xpay.ajax_url,
               data: {
                 'action': 'wcxpay_check_payment',
+                'nonce': wc_xpay.nonce,
                 'xpay_pi': xpay_data.id
               },
               success: function(response)  {

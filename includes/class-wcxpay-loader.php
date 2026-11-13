@@ -35,7 +35,7 @@ if ( ! class_exists( 'WCXPAY_Loader' ) ) {
 				register_rest_route( 'xpay/v1', 'update_payment/bank', array(
 				  'methods' => 'POST',
 				  'callback' => array( $this, 'update_payment_status'),
-				
+				  'permission_callback' => array( $this, 'authenicate_webhook'),
 				) );
 			});
 			
@@ -114,13 +114,10 @@ if ( ! class_exists( 'WCXPAY_Loader' ) ) {
 		 */
 		function add_xpay_sdk_script(){
 
-			$xpay_settings = get_option('woocommerce_xpay_settings', []); 
-			$xpay_sdk_url  = 'https://js.xstak.com/xpay.js';
-			if( !empty($xpay_settings) &&  isset($xpay_settings['sdk_url']) ){
-			
-				$xpay_sdk_url = $xpay_settings['sdk_url'];
-			}
-			?><script defer src="<?=$xpay_sdk_url?>"></script><?php
+			$xpay_settings = get_option('woocommerce_xpay_settings', []);
+			$mode          = isset( $xpay_settings['mode'] ) ? $xpay_settings['mode'] : 'TEST';
+			$xpay_sdk_url  = ( 'LIVE' === $mode ) ? 'https://js.xstak.com/v5/xpay.js' : 'https://js.xstak.com/v5/xpay-stage.js';
+			?><script defer src="<?php echo esc_url( $xpay_sdk_url ); ?>"></script><?php
 		}
 
 		
@@ -136,18 +133,18 @@ if ( ! class_exists( 'WCXPAY_Loader' ) ) {
 			$signature_header  = $request->get_header('X-Signature');
 
 			$body = $request->get_body();
-			$data = json_decode($body);
 
 			$wc_xpay_gateway     = WC()->payment_gateways->payment_gateways()['xpay'];
 			$webhook_hmac_secret = $wc_xpay_gateway->get_webhook_hmac_secret();
 
-			$signature = hash_hmac('sha256',json_encode( $data, JSON_UNESCAPED_SLASHES | JSON_UNESCAPED_UNICODE), $webhook_hmac_secret );
-	
-			if( $signature_header == $signature){
-				return true;
+			if ( empty( $webhook_hmac_secret ) || empty( $signature_header ) || '' === $body ) {
+				return false;
 			}
-	
-			return false;
+
+			// XPay signs the exact bytes it sends, so sign the raw body (re-encoding the JSON can change it).
+			$signature = hash_hmac( 'sha256', $body, $webhook_hmac_secret );
+
+			return hash_equals( $signature, (string) $signature_header );
 
 		}
 		/**
@@ -163,7 +160,7 @@ if ( ! class_exists( 'WCXPAY_Loader' ) ) {
 		
 			// Log webhook payload data if enabled
 			$wc_xpay_gateway = WC()->payment_gateways->payment_gateways()['xpay'];
-			if( $wc_xpay_gateway->debug_log == 'yes' ){
+			if( $wc_xpay_gateway->get_option( 'debug_log' ) == 'yes' ){
 				$logger = wc_get_logger();
         		$log_entry = print_r($body, 1);
         		$logger->info( $log_entry, array( 'source' => WCXPAY_LOG_FILENAME ) );
@@ -175,10 +172,12 @@ if ( ! class_exists( 'WCXPAY_Loader' ) ) {
 
 			if( $data->status == 'succeeded'){
 
-				global $wpdb;
-				$table = $wpdb->prefix.'postmeta';
-				$prepare_guery = $wpdb->prepare( "SELECT post_id FROM $table where meta_key ='xpay_pi' and meta_value = '%s'", $data->payment_intent_id );
-				$order_ids = $wpdb->get_col( $prepare_guery );
+				$xpay_pi = isset( $data->payment_intent_id ) ? (string) $data->payment_intent_id : '';
+				if( ! preg_match( '/^[A-Za-z0-9_-]+$/', $xpay_pi ) ){
+					return new WP_Error( '400', 'Invalid payment intent id.' );
+				}
+
+				$order_ids = $this->get_order_ids_by_intent( $xpay_pi );
 				
 				if(empty($order_ids)){
 					return new WP_Error( '404', 'Could not find order for the payment.' );
@@ -189,6 +188,10 @@ if ( ! class_exists( 'WCXPAY_Loader' ) ) {
 
 				if( !$order ){
 					return new WP_Error( '404', 'Order not found.' );
+				}
+
+				if( $order->is_paid() ){
+					return new WP_REST_Response([ 'success' => true, 'message' => 'Order already paid.' ] );
 				}
 
 				$transaction         = $data->transaction_details;
@@ -210,11 +213,61 @@ if ( ! class_exists( 'WCXPAY_Loader' ) ) {
          */
 		function check_payment_intent_status(){
 
-			$xpay_pi         = sanitize_text_field( wp_unslash( $_POST['xpay_pi'] ) );
+			check_ajax_referer( 'wcxpay_check_payment', 'nonce' );
+
+			$xpay_pi = isset( $_POST['xpay_pi'] ) ? sanitize_text_field( wp_unslash( $_POST['xpay_pi'] ) ) : '';
+			if( ! preg_match( '/^[A-Za-z0-9_-]+$/', $xpay_pi ) ){
+				wp_send_json( [ 'success' => false ], 400 );
+			}
+
+			$order_ids = $this->get_order_ids_by_intent( $xpay_pi );
+			$order     = empty( $order_ids ) ? false : wc_get_order( $order_ids[0] );
+			if( ! $order || ! $this->current_visitor_owns_order( $order ) ){
+				wp_send_json( [ 'success' => false ], 403 );
+			}
+
+			wp_send_json( [ 'success' => ! empty( $this->fetch_intent( $xpay_pi ) ) ], 200 );
+		}
+
+		/**
+		 * Order ids that carry the given payment intent id.
+		 * @param string $xpay_pi
+		 *
+		 * @return array
+		 */
+		function get_order_ids_by_intent( $xpay_pi ){
+			// wc_get_orders works on both the legacy posts store and HPOS.
+			return wc_get_orders( [ 'limit' => 1, 'return' => 'ids', 'meta_key' => 'xpay_pi', 'meta_value' => $xpay_pi ] );
+		}
+
+		/**
+		 * The visitor may only query the order they are currently paying for, or one they own.
+		 * @param WC_Order $order
+		 *
+		 * @return bool
+		 */
+		function current_visitor_owns_order( $order ){
+			$session_order_ids = [];
+			if( WC()->session ){
+				$session_order_ids = [ WC()->session->get( 'order_awaiting_payment' ), WC()->session->get( 'store_api_draft_order' ) ];
+			}
+			if( in_array( $order->get_id(), array_map( 'intval', array_filter( $session_order_ids ) ), true ) ){
+				return true;
+			}
+			return is_user_logged_in() && $order->get_customer_id() === get_current_user_id();
+		}
+
+		/**
+		 * Look the intent up on XPay with the merchant secret key.
+		 * @param string $xpay_pi
+		 *
+		 * @return array intent data, empty when XPay does not know the intent.
+		 */
+		function fetch_intent( $xpay_pi ){
 			$wc_xpay_gateway = WC()->payment_gateways->payment_gateways()['xpay'];
-			$xpay_api        = new XPay_API( $wc_xpay_gateway->get_acccounId(), $wc_xpay_gateway->get_secret_key(), $wc_xpay_gateway->get_hmac_secret(),$wc_xpay_gateway->mode, $wc_xpay_gateway->debug_log );
+			$xpay_api        = new XPay_API( $wc_xpay_gateway->get_acccounId(), $wc_xpay_gateway->get_secret_key(), $wc_xpay_gateway->get_hmac_secret(), $wc_xpay_gateway->get_option( 'mode', 'TEST' ), $wc_xpay_gateway->get_option( 'debug_log' ) );
 			$intent_response = $xpay_api->get_intent( $xpay_pi );
-			wp_send_json($intent_response,200);	
+			return ( ! empty( $intent_response['success'] ) && ! empty( $intent_response['data'] ) ) ? (array) $intent_response['data'] : [];
 		}
 
 		/**
@@ -228,7 +281,7 @@ if ( ! class_exists( 'WCXPAY_Loader' ) ) {
 		function send_error_notification( $response, $request_url, $headers, $body  ){
 			
 			$wc_xpay_gateway = WC()->payment_gateways->payment_gateways()['xpay'];
-			$error_notification_recipients = $wc_xpay_gateway->error_notification_recipient;
+			$error_notification_recipients = $wc_xpay_gateway->get_option( 'error_notification_recipient' );
 
 			if( empty($error_notification_recipients)){
 				return ;  // No notification recipients.

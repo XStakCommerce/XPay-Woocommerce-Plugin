@@ -93,28 +93,18 @@ if ( ! class_exists( 'WC_Gateway_Xpay' ) ) {
 					'description' => __( 'Accound ID from Xpay .', 'woocommerce-gateway-xpay' ),
 					'desc_tip'    => true,
 				),
-				'sdk_url' => array(
-					'title'       => __( 'SDK URL', 'woocommerce-gateway-xpay' ),
-					'type'        => 'text',
-					'description' => __( 'Add the URL of xpay SDK, make sure to add correct url as per XPAY account (staging or live).', 'woocommerce-gateway-xpay' ),
-					'default'     => 'https://js.xstak.com/xpay.js',
-					'desc_tip'    => true,
-					'custom_attributes'  => array(
-						'required'   => 'required',
-						'pattern'    => '^https:\/\/js\.xstak\.com(?:\/v4)?\/xpay(?:-stage)?\.js'
-					)
-				),
 				'mode'            => array(
 					'title'   => __( 'Mode', 'woocommerce-gateway-xpay' ),
 					'type'    => 'select',
-					'description' => __('Mode of XPay account.', 'woocommerce-gateway-xpay' ),
+					// Shown under the field only while TEST is selected (assets/admin/js/settings.js).
+					'description' => __( 'Test mode connects to the XPay staging environment. Use the test keys from your XPay staging account. Test keys from the production dashboard will not work here.', 'woocommerce-gateway-xpay' ),
 					'options' => array(
 						'TEST' => 'TEST',
 						'LIVE' => 'LIVE',
 					),
 					'css'     => 'width:200px;',
 					'default' => 'TEST',
-					'desc_tip'    => true,
+					'desc_tip'    => false,
 				),
 				'publishable_key' => array(
 					'title' => __( 'Publishable Key', 'woocommerce-gateway-xpay' ),
@@ -212,7 +202,7 @@ if ( ! class_exists( 'WC_Gateway_Xpay' ) ) {
 
             $order = wc_get_order($order_id);
 			$intent_response = $this->create_intent( $order );
-			$this->log($intent_response);
+			$this->log( $intent_response['success'] ? 'Intent ready: '.$intent_response['data']['_id'] : $intent_response );
 			$message = '';
 			if( !$intent_response['success']  ){
             	$message = $intent_response['message'];
@@ -252,26 +242,7 @@ if ( ! class_exists( 'WC_Gateway_Xpay' ) ) {
          */
 		public function create_intent( $order ){
 
-			function filter_empty($array) {
-				foreach ($array as $key => $value) {
-					if (is_array($value)) {
-						$array[$key] = filter_empty($value);
-					}
-					if (empty($array[$key]) && $array[$key] !== '0') {
-						unset($array[$key]);
-					}
-				}
-				return $array;
-			}
-
-			function process_string($string) {
-				// Remove content within parentheses
-				$string = preg_replace('/\s*\([^)]*\)/', '', $string);
-				// Capitalize the first character of each word
-				return ucwords(trim($string));
-			}
-		
-			$pi_data = get_post_meta( $order->get_id(), 'xpay_pi_data', true);
+			$pi_data = $order->get_meta( 'xpay_pi_data' );
 			if( !empty($pi_data) ){
 				$this->log('getting saved intent.');
 				return [
@@ -295,7 +266,7 @@ if ( ! class_exists( 'WC_Gateway_Xpay' ) ) {
 				'shipping' => [
 					'address1' => htmlspecialchars(($order->get_billing_address_1())),
 					'city'     => htmlspecialchars($order->get_billing_city()),
-					'country'  => htmlspecialchars(process_string(strtolower(WC()->countries->countries[$order->get_billing_country()]))),
+					'country'  => htmlspecialchars($this->process_string(strtolower(WC()->countries->countries[$order->get_billing_country()]))),
 					'province' => htmlspecialchars(ucwords(strtolower($state))),
 					'zip' => $order->get_billing_postcode()
 				],
@@ -305,12 +276,12 @@ if ( ! class_exists( 'WC_Gateway_Xpay' ) ) {
 			];
 			
 
-			$filtered_order_data = filter_empty($order_data);
+			$filtered_order_data = $this->filter_empty($order_data);
 
 			$data = (object)apply_filters('wc_xpay_create_intent_data', $filtered_order_data);
 
 			
-			$xpay_api = new XPay_API( $this->get_acccounId(), $this->get_secret_key(), $this->get_hmac_secret(), $this->mode, $this->debug_log );
+			$xpay_api = new XPay_API( $this->get_acccounId(), $this->get_secret_key(), $this->get_hmac_secret(), $this->get_option( 'mode', 'TEST' ), $this->get_option( 'debug_log' ) );
 			$intent_response = $xpay_api->create_intent( $data );
 
 			if(  $intent_response['success']  ){
@@ -318,8 +289,9 @@ if ( ! class_exists( 'WC_Gateway_Xpay' ) ) {
 				$pi_data = $intent_response['data'];
 				$pi_id   = $pi_data['_id'];
 
-				update_post_meta( $order->get_id(), 'xpay_pi', $pi_id);
-				update_post_meta( $order->get_id(), 'xpay_pi_data', $pi_data);
+				$order->update_meta_data( 'xpay_pi', $pi_id );
+				$order->update_meta_data( 'xpay_pi_data', $pi_data );
+				$order->save();
 
 				$note = "Intent created on XPay ".$pi_id;
 				$order->add_order_note($note);
@@ -328,11 +300,41 @@ if ( ! class_exists( 'WC_Gateway_Xpay' ) ) {
 		}
 
 		/**
+		 * Drop empty values recursively (keeps the string '0').
+		 * Was a nested global function: declaring it twice in one request, or any other plugin defining it, was a fatal error.
+		 * @param array $array
+		 *
+		 * @return array
+		 */
+		private function filter_empty( $array ) {
+			foreach ( $array as $key => $value ) {
+				if ( is_array( $value ) ) {
+					$array[ $key ] = $this->filter_empty( $value );
+				}
+				if ( empty( $array[ $key ] ) && $array[ $key ] !== '0' ) {
+					unset( $array[ $key ] );
+				}
+			}
+			return $array;
+		}
+
+		/**
+		 * Remove parenthesised text and capitalise each word.
+		 * @param string $string
+		 *
+		 * @return string
+		 */
+		private function process_string( $string ) {
+			$string = preg_replace( '/\s*\([^)]*\)/', '', $string );
+			return ucwords( trim( $string ) );
+		}
+
+		/**
          *  Get account ID.
          * @return string $accountId 
          */
 		function get_acccounId(){
-			$accountId = $this->account_id;
+			$accountId = $this->get_option( 'account_id' );
 			return $accountId;
 		}
 
@@ -342,9 +344,9 @@ if ( ! class_exists( 'WC_Gateway_Xpay' ) ) {
          */
 		function get_public_key(){
 
-			$publishable_key = $this->publishable_key;
-			if( $this->mode == 'TEST' ){
-				$publishable_key = $this->test_publishable_key;
+			$publishable_key = $this->get_option( 'publishable_key' );
+			if( $this->get_option( 'mode', 'TEST' ) == 'TEST' ){
+				$publishable_key = $this->get_option( 'test_publishable_key' );
 			}
 			return $publishable_key;
 		}
@@ -355,9 +357,9 @@ if ( ! class_exists( 'WC_Gateway_Xpay' ) ) {
          */
 		function get_secret_key(){
 
-			$secret_key = $this->secret_key;
-			if( $this->mode == 'TEST' ){
-				$secret_key = $this->test_secret_key;
+			$secret_key = $this->get_option( 'secret_key' );
+			if( $this->get_option( 'mode', 'TEST' ) == 'TEST' ){
+				$secret_key = $this->get_option( 'test_secret_key' );
 			}
 			return $secret_key;
 		}
@@ -368,9 +370,9 @@ if ( ! class_exists( 'WC_Gateway_Xpay' ) ) {
          */
 		function get_hmac_secret(){
 	
-			$hmach_secret = $this->hmac_secret;
-			if( $this->mode == 'TEST' ){
-				$hmach_secret = $this->test_hmac_secret;
+			$hmach_secret = $this->get_option( 'hmac_secret' );
+			if( $this->get_option( 'mode', 'TEST' ) == 'TEST' ){
+				$hmach_secret = $this->get_option( 'test_hmac_secret' );
 			}
 			return $hmach_secret;
 		}
@@ -381,9 +383,9 @@ if ( ! class_exists( 'WC_Gateway_Xpay' ) ) {
          */
 		function get_webhook_hmac_secret(){
 	
-			$webhook_hmach_secret = $this->webhook_hmac_secret;
-			if( $this->mode == 'TEST' ){
-				$webhook_hmach_secret = $this->test_webhook_hmac_secret;
+			$webhook_hmach_secret = $this->get_option( 'webhook_hmac_secret' );
+			if( $this->get_option( 'mode', 'TEST' ) == 'TEST' ){
+				$webhook_hmach_secret = $this->get_option( 'test_webhook_hmac_secret' );
 			}
 			return $webhook_hmach_secret;
 		}
@@ -416,8 +418,8 @@ if ( ! class_exists( 'WC_Gateway_Xpay' ) ) {
 			$xpay_config = [
 				'publishableKey' => $this->get_public_key(),
 				'accountId'      => $this->get_acccounId(),
-				'hmacSecret'     => $this->get_hmac_secret(),
-				'ajax_url'  => admin_url( 'admin-ajax.php' ),
+				'ajax_url'       => admin_url( 'admin-ajax.php' ),
+				'nonce'          => wp_create_nonce( 'wcxpay_check_payment' ),
 			];
 			wp_localize_script(
 				'wc_xpay_widget_payment',
@@ -434,7 +436,7 @@ if ( ! class_exists( 'WC_Gateway_Xpay' ) ) {
          */
         function log($response) { 
             
-            if( $this->debug_log == 'no' ){
+            if( 'yes' !== $this->get_option( 'debug_log' ) ){
                 return;
             }
             $logger = wc_get_logger();

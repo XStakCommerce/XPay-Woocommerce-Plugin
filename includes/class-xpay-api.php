@@ -94,12 +94,27 @@ if (!class_exists('XPay_API')):
                 return $response;
             }else {
                 $response_data = json_decode(wp_remote_retrieve_body($response), true);
-                if( $response_data['success'] == false ) {
-                    do_action('wc_xpay_api_error', $response_data, $url, $headers, $data );
+                if( empty( $response_data['success'] ) ) {
+                    do_action('wc_xpay_api_error', $response_data, $url, $this->redact( $headers ), $data );
                 }
                 return $response_data;
             }
 
+        }
+
+        /**
+         * Strip credentials from request headers before they are mailed or logged.
+         * @param array $headers
+         *
+         * @return array
+         */
+        function redact( $headers ){
+            foreach ( [ 'x-api-key', 'x-signature' ] as $key ) {
+                if ( isset( $headers[ $key ] ) ) {
+                    $headers[ $key ] = '[redacted]';
+                }
+            }
+            return $headers;
         }
 
         /**

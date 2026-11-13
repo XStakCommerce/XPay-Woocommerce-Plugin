@@ -6,6 +6,7 @@ jQuery(document).ready(function ($) {
     $('#woocommerce_xpay_mode').on('change', function(e) {  
 
         let current_mode = $(this).val();
+        $(this).closest('td').find('.description').toggle( current_mode == 'TEST' ); // staging note
         if( current_mode == 'TEST' ){
             jQuery('#woocommerce_xpay_publishable_key').closest('tr').hide();
             jQuery('#woocommerce_xpay_secret_key').closest('tr').hide();

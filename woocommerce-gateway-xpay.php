@@ -4,7 +4,7 @@
  * Description: Take credit card payments on your store using XPay.
  * Author: XStak
  * Author URI: https://www.xstak.com/
- * Version: 1.0.9
+ * Version: 2.0.0
  * Text Domain: woocommerce-gateway-xpay
  */
 
@@ -18,6 +18,13 @@ define( 'WCXPAY_PLUGIN_NAME', 'WooCommerce Xpay Gateway' );
 define( 'WCXPAY_PLUGIN_DIR_URL', plugin_dir_url( __FILE__ ) );
 define( 'WCXPAY_ASSETS_DIR_URL', WCXPAY_PLUGIN_DIR_URL . 'assets/' );
 define( 'WCXPAY_PLUGIN_SLUG', plugin_basename( __FILE__ ));
+
+// Declare High-Performance Order Storage (HPOS) compatibility: all order meta goes through the WC_Order CRUD API.
+add_action( 'before_woocommerce_init', function () {
+	if ( class_exists( \Automattic\WooCommerce\Utilities\FeaturesUtil::class ) ) {
+		\Automattic\WooCommerce\Utilities\FeaturesUtil::declare_compatibility( 'custom_order_tables', __FILE__, true );
+	}
+} );
 
 require_once 'env.php';
 require_once WCXPAY_PLUGIN_DIR . '/helpers.php';

@@ -1,9 +1,8 @@
 document.addEventListener("DOMContentLoaded", function () {
-  window.WC_XPAY = new Xpay(
-    wc_xpay.publishableKey,
-    wc_xpay.accountId,
-    wc_xpay.hmacSecret
-  );
+  window.WC_XPAY = new XPay({
+    publishableKey: wc_xpay.publishableKey,
+    accountId: wc_xpay.accountId,
+  });
 
   if (window.location.pathname.includes("/checkout")) {
     const options = {
@@ -97,12 +96,12 @@ document.addEventListener("DOMContentLoaded", function () {
           args.xpay_data = JSON.parse(args.xpay_data);
           try {
             let customer = args.xpay_data.customer;
-            const response = WC_XPAY.confirmPayment(
-              "card",
-              args.xpay_data.clientSecret,
-              customer,
-              args.xpay_data.encryptionKey
-            )
+            const response = WC_XPAY.confirmPayment({
+              paymentMethodType: "card",
+              clientSecret: args.xpay_data.clientSecret,
+              customer: customer,
+              encryptionKey: args.xpay_data.encryptionKey,
+            })
               .then((res) => {
                 console.log(res);
                 // Payment confirmed, redirect to thankyou page.
