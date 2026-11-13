@@ -26,18 +26,11 @@ if ( ! class_exists( 'WC_Gateway_Xpay' ) ) {
             // Load the settings.
             $this->init_form_fields();
             $this->init_settings();
-            
-            foreach ( $this->settings as $setting_key => $value ) {
-				$this->$setting_key = $value;
-			}
-            
-            // Get settings.
-            //$this->title =  'Card Payments';
-            $this->testmode = 'yes' === $this->get_option('testmode', 'no');
-            $this->enable_for_methods = $this->get_option('enable_for_methods', []);
-            $this->enable_for_virtual = $this->get_option('enable_for_virtual', 'yes') === 'yes';
-			$this->supports           = [ 'products' ];
-				
+
+            // Only properties WC_Payment_Gateway declares; everything else is read with get_option() (no dynamic properties, PHP 8.2+).
+            $this->title       = $this->get_option( 'title' );
+            $this->description = $this->get_option( 'description' );
+
             add_action('woocommerce_update_options_payment_gateways_' . $this->id, [$this, 'process_admin_options']);
             add_action('admin_enqueue_scripts', [ $this, 'admin_assets' ] );
 			add_action('wp_enqueue_scripts', [ $this, 'payment_scripts' ] );
