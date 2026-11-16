@@ -4,7 +4,7 @@
  * Description: Take credit card payments on your store using XPay.
  * Author: XStak
  * Author URI: https://www.xstak.com/
- * Version: 2.0.0
+ * Version: 2.1.0
  * Text Domain: woocommerce-gateway-xpay
  */
 
