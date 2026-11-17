@@ -72,7 +72,6 @@ final class WCXPAY_BlockPaymentMethod extends AbstractPaymentMethodType {
 			'publishableKey' => $this->gateway->get_public_key(),
 			'accountId'      => $this->gateway->get_acccounId(),
 			'ajax_url'       => admin_url( 'admin-ajax.php' ),
-			'nonce'          => wp_create_nonce( 'wcxpay_check_payment' ),
 		];
 		wp_localize_script(
 			'wc_xpay_block_widget_payment',

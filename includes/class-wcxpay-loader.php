@@ -38,11 +38,9 @@ if ( ! class_exists( 'WCXPAY_Loader' ) ) {
 				  'permission_callback' => array( $this, 'authenicate_webhook'),
 				) );
 			});
-			
-			add_action( 'wp_ajax_wcxpay_check_payment', array( $this, 'check_payment_intent_status' ) );
-			add_action( 'wp_ajax_nopriv_wcxpay_check_payment', array( $this, 'check_payment_intent_status' ) );
 
 			add_action('wc_xpay_api_error', [$this, 'send_error_notification'], 10, 4);
+			add_action('woocommerce_thankyou_xpay', [$this, 'show_payment_status'] );
 		}
 
 		/**
@@ -209,27 +207,6 @@ if ( ! class_exists( 'WCXPAY_Loader' ) ) {
         }
 
 		/**
-         * Callback handler of check PI status.
-         */
-		function check_payment_intent_status(){
-
-			check_ajax_referer( 'wcxpay_check_payment', 'nonce' );
-
-			$xpay_pi = isset( $_POST['xpay_pi'] ) ? sanitize_text_field( wp_unslash( $_POST['xpay_pi'] ) ) : '';
-			if( ! preg_match( '/^[A-Za-z0-9_-]+$/', $xpay_pi ) ){
-				wp_send_json( [ 'success' => false ], 400 );
-			}
-
-			$order_ids = $this->get_order_ids_by_intent( $xpay_pi );
-			$order     = empty( $order_ids ) ? false : wc_get_order( $order_ids[0] );
-			if( ! $order || ! $this->current_visitor_owns_order( $order ) ){
-				wp_send_json( [ 'success' => false ], 403 );
-			}
-
-			wp_send_json( [ 'success' => ! empty( $this->fetch_intent( $xpay_pi ) ) ], 200 );
-		}
-
-		/**
 		 * Order ids that carry the given payment intent id.
 		 * @param string $xpay_pi
 		 *
@@ -241,33 +218,42 @@ if ( ! class_exists( 'WCXPAY_Loader' ) ) {
 		}
 
 		/**
-		 * The visitor may only query the order they are currently paying for, or one they own.
-		 * @param WC_Order $order
-		 *
-		 * @return bool
+		 * Order-received page: tell the shopper whether XPay actually took the payment.
+		 * Runs inside WooCommerce's order page (already checked against the order key), so there is no extra public endpoint.
+		 * Display only: the order is still marked paid only by the signed webhook.
+		 * @param int $order_id
 		 */
-		function current_visitor_owns_order( $order ){
-			$session_order_ids = [];
-			if( WC()->session ){
-				$session_order_ids = [ WC()->session->get( 'order_awaiting_payment' ), WC()->session->get( 'store_api_draft_order' ) ];
+		function show_payment_status( $order_id ){
+			$order   = wc_get_order( $order_id );
+			$xpay_pi = $order ? (string) $order->get_meta( 'xpay_pi' ) : '';
+			if( ! $order || $order->is_paid() || '' === $xpay_pi ){
+				return;
 			}
-			if( in_array( $order->get_id(), array_map( 'intval', array_filter( $session_order_ids ) ), true ) ){
-				return true;
+
+			$status = $this->get_intent_status( $xpay_pi );
+			if( 'succeeded' === $status ){
+				$message = __( 'Payment received. Your order will be confirmed shortly.', 'woocommerce-gateway-xpay' );
+			} elseif( 'requires_payment_method' === $status ){
+				$message = __( 'Payment not completed. Your order has not been paid. Please place your order again or contact the store.', 'woocommerce-gateway-xpay' );
+			} elseif( '' !== $status ){
+				$message = __( 'Your payment is still being processed. Your order will be updated once the payment is confirmed.', 'woocommerce-gateway-xpay' );
+			} else {
+				return; // XPay could not be reached: keep the standard WooCommerce page.
 			}
-			return is_user_logged_in() && $order->get_customer_id() === get_current_user_id();
+			echo '<div class="woocommerce-info">' . esc_html( $message ) . '</div>';
 		}
 
 		/**
-		 * Look the intent up on XPay with the merchant secret key.
+		 * Current status of a payment intent on XPay, '' if it could not be read.
 		 * @param string $xpay_pi
 		 *
-		 * @return array intent data, empty when XPay does not know the intent.
+		 * @return string
 		 */
-		function fetch_intent( $xpay_pi ){
-			$wc_xpay_gateway = WC()->payment_gateways->payment_gateways()['xpay'];
-			$xpay_api        = new XPay_API( $wc_xpay_gateway->get_acccounId(), $wc_xpay_gateway->get_secret_key(), $wc_xpay_gateway->get_hmac_secret(), $wc_xpay_gateway->get_option( 'mode', 'TEST' ), $wc_xpay_gateway->get_option( 'debug_log' ) );
-			$intent_response = $xpay_api->get_intent( $xpay_pi );
-			return ( ! empty( $intent_response['success'] ) && ! empty( $intent_response['data'] ) ) ? (array) $intent_response['data'] : [];
+		function get_intent_status( $xpay_pi ){
+			$gateway  = WC()->payment_gateways->payment_gateways()['xpay'];
+			$xpay_api = new XPay_API( $gateway->get_acccounId(), $gateway->get_secret_key(), $gateway->get_hmac_secret(), $gateway->get_option( 'mode', 'TEST' ), $gateway->get_option( 'debug_log' ) );
+			$response = $xpay_api->get_intent( $xpay_pi );
+			return ( ! empty( $response['success'] ) && isset( $response['data']['pi_status'] ) ) ? (string) $response['data']['pi_status'] : '';
 		}
 
 		/**

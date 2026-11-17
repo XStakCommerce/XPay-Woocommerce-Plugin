@@ -57,16 +57,19 @@ if (!class_exists('XPay_API')):
 
         }
 
+        /**
+         * Get a payment intent from XPay with the merchant secret key.
+         * @param string $pi_id
+         *
+         * @return array
+         */
         function get_intent( $pi_id ){
 
             $headers = [
                 "x-api-key" => $this->secret_key,
                 "x-account-id" => $this->account_id,
             ];
-            $url = 'v1/payment/intent/details/'.$pi_id;
-          
-            $response_data = $this->send_request( $url, 'GET', $headers, []  );
-            return $response_data;
+            return $this->send_request( 'v1/payment/intent/details/'.rawurlencode( $pi_id ), 'GET', $headers, [] );
         }
 
         /**

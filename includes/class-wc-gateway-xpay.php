@@ -412,7 +412,6 @@ if ( ! class_exists( 'WC_Gateway_Xpay' ) ) {
 				'publishableKey' => $this->get_public_key(),
 				'accountId'      => $this->get_acccounId(),
 				'ajax_url'       => admin_url( 'admin-ajax.php' ),
-				'nonce'          => wp_create_nonce( 'wcxpay_check_payment' ),
 			];
 			wp_localize_script(
 				'wc_xpay_widget_payment',

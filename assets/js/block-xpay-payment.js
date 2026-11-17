@@ -69,30 +69,14 @@ jQuery('document').ready(function($ ){
   wp.hooks.addAction( `xpayBlockPaymentError`, 'xpay-checkout-block', function( error, args) {
       let xpay_data = JSON.parse(args.processingResponse.paymentDetails.xpay_data);
 
-      //Method is already attached, no need of card anymore. 
+      // An earlier confirm already submitted the card for this intent. Go to the order page;
+      // the order is marked paid only by XPay's signed webhook, never by this redirect.
       if( error.message === "Payment Method is already attached"){
-          $.ajax({
-              type: 'POST',
-              url: wc_xpay.ajax_url,
-              data: {
-                'action': 'wcxpay_check_payment',
-                'nonce': wc_xpay.nonce,
-                'xpay_pi': xpay_data.id
-              },
-              success: function(response)  {
-
-                if( response.success == true){
-                    if ( -1 === xpay_data.redirect.indexOf( 'https://' ) || -1 === xpay_data.redirect.indexOf( 'http://' ) ) {
-                        window.location = xpay_data.redirect;
-                    } else {
-                        window.location = decodeURI( xpay_data.redirect );
-                    }
-                }
-              },
-              error:  function( err){
-                console.log('err');
-              }
-          });  
+          if ( -1 === xpay_data.redirect.indexOf( 'https://' ) || -1 === xpay_data.redirect.indexOf( 'http://' ) ) {
+              window.location = xpay_data.redirect;
+          } else {
+              window.location = decodeURI( xpay_data.redirect );
+          }
       }else{
         $('button.wc-block-components-checkout-place-order-button').prop('disabled', false);
         $('button.wc-block-components-checkout-place-order-button .wc-block-components-button__text').text('Place Order');
